@@ -1,0 +1,642 @@
+var s2_cloud = require('users/marcyinfeng/SIAC:S2_cloud')
+var TNN = require('users/marcyinfeng/SIAC:TNN')
+var kernel = require('users/marcyinfeng/SIAC:get_kernel')
+var ISO_AC = require('users/marcyinfeng/SIAC:ISO_AC')
+var interp_mcd43a1 = require('users/marcyinfeng/SIAC:interp_MCD43A1')
+var mcd43_names = kernel.mcd43_names
+var get_cloud = s2_cloud.get_cloud
+var common_bands = s2_cloud.common_bands
+var s2_bands = s2_cloud.s2_bands
+var l8_bands = s2_cloud.l8_bands
+
+/*var NCP = ee.Geometry.Polygon(
+        [[[110.87339539178083, 35.41489931550145],
+          [112.87290711053083, 35.199726488878134],
+          [119.17905945428083, 34.09712739799871],
+          [119.92612976678083, 36.12799511409449],
+          [116.95982117303083, 40.37070946586036],
+          [111.37876648553083, 39.49460170361588]]]);
+//Map.addLayer(NCP)
+var cloud_date = '2018-01-15'
+var NCP_dataset = ee.ImageCollection('COPERNICUS/S2')
+                  .filterDate(cloud_date, ee.Date(cloud_date).advance(1, 'day'))
+                  .filterBounds(NCP)
+                  //.map(get_cloud)
+
+//print(NCP_dataset)
+//print()
+var cloudVis = {
+  min: 0,
+  max: 1,
+  bands: ['cloud'],
+  opacity: 0.4,
+};
+var rgbVis = {
+      min: 0.0,
+      max: 0.4,
+      bands: ['RED', 'GREEN', 'BLUE'],
+    };*/
+//Map.addLayer(NCP_dataset/*.select(rgbVis['bands'])*/, rgbVis, 'TOA')
+//20180115T030049_20180115T030132_T50SPE,
+//20180115T030049_20180115T030132_T50SPD, 
+//20180115T030049_20180115T030132_T50SND
+//var colList = NCP_dataset.toList(NCP_dataset.size());
+//var s2_file = '20180115T030049_20180115T030132_T50SND'
+/*var s2_file = '20180115T030049_20180115T030132_T50SPD'
+var image = ee.ImageCollection('COPERNICUS/S2').filterMetadata('system:index', 'equals', s2_file)
+                       .map(get_cloud)
+                       .first()
+                       //.clip(geom)
+*/
+var get_atmo_paras = function(image){
+  var geom  = image.geometry()
+  //image      = get_cloud(image)
+  var cloud = image.select('cloud')
+  var cloud_date = image.date()  
+  //image     = image.addBands([cloud])
+  image     = image.updateMask(image.select('cloud').eq(0))
+  //var point = ee.Geometry.Point(112.258, 39.351)
+  var collection = ee.ImageCollection('MODIS/006/MCD43A1')
+                          .filterDate(cloud_date, ee.Date(cloud_date).advance(1, 'day'))
+                          .filterBounds(geom)
+                          .select(mcd43_names)
+                          
+  //print(collection)
+  var rgbVis = {
+        min: 0.0,
+        max: 0.4,
+        bands: ['RED', 'GREEN', 'BLUE'],
+      };
+  var mcd43Vis = {
+        min: 0.0,
+        max: 0.4,
+        bands: ['BRDF_Albedo_Parameters_Band1_iso', 'BRDF_Albedo_Parameters_Band4_iso', 'BRDF_Albedo_Parameters_Band3_iso'],
+      };
+  //Map.addLayer(image.select(common_bands.slice(0,6)), rgbVis, 'TOA')
+  
+  //var mcd43_mask = collection.select(mcd43_names.slice(18,24)).mosaic().lt(2).toInt().reduce(ee.Reducer.allNonZero())
+  var mcd43a1    = interp_mcd43a1.interp_mcd43a1(image)
+                             
+  var psf = ee.Kernel.gaussian({
+    radius: 1500,
+    sigma: 300,
+    units: 'meters',
+    normalize: true,
+  });
+  image = image.convolve(psf)
+  
+  //Map.addLayer(image, cloudVis, 'cloud')
+  //Map.addLayer(mcd43a1, mcd43Vis, 'MCD43A1')
+  //Map.centerObject(image, 10)
+  
+  var saa  = ee.Image.constant(ee.Number(image.get('MEAN_SOLAR_AZIMUTH_ANGLE'))).rename('saa')
+  var sza  = ee.Image.constant(ee.Number(image.get('MEAN_SOLAR_ZENITH_ANGLE' ))).rename('sza')
+  var vaa  = ee.Image.constant(ee.Number(image.get('MEAN_INCIDENCE_AZIMUTH_ANGLE_B2'))).rename('vaa')
+  var vza  = ee.Image.constant(ee.Number(image.get('MEAN_INCIDENCE_ZENITH_ANGLE_B2' ))).rename('vza')
+  
+  image = image.addBands([saa, sza, vaa, vza]).addBands(mcd43a1.select(mcd43_names.slice(0, 18)))
+  image = kernel.makeBRDFKernels(image)
+  
+  var cos_raa = image.select('cos_raa')
+  var cos_sza = image.select('cos_sza')
+  var cos_vza = image.select('cos_vza')
+  
+  //Map.addLayer(image, rgbVis, 'TOA', false)
+  
+  var tco3 = ee.ImageCollection('TOMS/MERGED')
+                    .filterDate(cloud_date, ee.Date(cloud_date).advance(1, 'day'))
+                    .first()
+                    .select('ozone')
+                    .multiply(0.001)
+                    .rename('tco3')
+  var elevation = ee.Image('USGS/SRTMGL1_003').select('elevation').multiply(0.001)
+  
+  var modisProjection = mcd43a1.projection();
+  var image3 = ee.Image.cat([image.select('BLUE').reproject('EPSG:4326', null, 500).float(), 
+                             image.select('GREEN').reproject('EPSG:4326', null, 500).float(), 
+                             mcd43a1.select('BRDF_Albedo_Parameters_Band3_iso').reproject('EPSG:4326', null, 500).float(),
+                             mcd43a1.select('BRDF_Albedo_Parameters_Band3_vol').reproject('EPSG:4326', null, 500).float(),
+                             mcd43a1.select('BRDF_Albedo_Parameters_Band3_geo').reproject('EPSG:4326', null, 500).float(),
+                             mcd43a1.select('BRDF_Albedo_Parameters_Band4_iso').reproject('EPSG:4326', null, 500).float(),
+                             mcd43a1.select('BRDF_Albedo_Parameters_Band4_vol').reproject('EPSG:4326', null, 500).float(),
+                             mcd43a1.select('BRDF_Albedo_Parameters_Band4_geo').reproject('EPSG:4326', null, 500).float(),
+                             cos_sza.reproject('EPSG:4326', null, 500).float(),
+                             cos_vza.reproject('EPSG:4326', null, 500).float(),
+                             cos_raa.reproject('EPSG:4326', null, 500).float(),
+                             tco3.reproject('EPSG:4326', null, 500).float().rename('tco3'),
+                             elevation.reproject('EPSG:4326', null, 500).float().rename('ele'),
+                             ]).clip(geom).float()
+  
+  //Map.addLayer(image3, {}, 'XX', false)
+  
+  // Convert the band data to plot on the y-axis to arrays.
+  var result = image.select(['simu_boa_b6', 'SWIR2']).reproject('EPSG:4326', null, 500).float().reduceRegion(ee.Reducer.toList(), image.geometry(), 120);
+  var yValues = ee.Array(result.get('simu_boa_b6'));
+  //var y2 = ee.Array(image.get(''));
+  // Concatenate the y-axis data by stacking the arrays on the 1-axis.
+  //var yValues = ee.Array.cat([y1, y2], 1);
+  
+  // The band data to plot on the x-axis is a List.
+  var xValues = ee.Array(result.get('SWIR2'));
+  
+  // Make a band correlation chart.
+  /*var chart = ui.Chart.array.values(yValues.slice({axis: 0, start: 1, end: 50000, step: 1}), 0, xValues.slice({axis: 0, start: 1, end: 50000, step: 1}))
+      .setOptions({
+        width : 240,
+        height: 240,
+        title: 'S2 TOA SWIR vs. MCD43A1 simu SWIR',
+        hAxis: {'title': 'MCD43A1 simu SWIR'},
+        vAxis: {'title': 'S2 TOA SWIR'},
+        pointSize: 3,
+  });*/
+  
+  // Print the chart.
+  //print(chart);
+  var boa_diff = image.select('simu_boa_b6').subtract(image.select('SWIR2')).rename('diff')
+  
+  /*var linearFit = image.select([ 'simu_boa_b6', 'SWIR2'])
+                  .reproject('EPSG:4326', null, 500).float()
+                  .reduceRegion(ee.Reducer.robustLinearRegression(1,1))
+                  
+  var k = ee.Number(ee.Array(linearFit.get('coefficients')).get([0,0]))
+  //var b = ee.Number(ee.Array(linearFit.get('residuals'   )).get([0]))
+  var boa_diff = image.select('simu_boa_b6')
+                .multiply(ee.Image(k))
+                //.add(ee.Image(b))
+                .subtract(image.select('SWIR2'))
+                .reproject('EPSG:4326', null, 500).float()*/
+                
+  var pp = boa_diff.reproject('EPSG:4326', null, 500).float()
+                   .reduceRegion(ee.Reducer.percentile([15, 85]), geom)
+  var diff_min  = ee.Number(pp.get('diff_p15'))
+  var diff_max  = ee.Number(pp.get('diff_p85'))
+  var stab_mask = (boa_diff.lte(diff_max)).and(boa_diff.gte(diff_min))
+  
+  var median = boa_diff.reproject('EPSG:4326', null, 500).float()
+                   .reduceRegion(ee.Reducer.median(), geom)
+                   
+  //print(median.get('diff'))                
+  var diff_min  = ee.Number(median.get('diff')).subtract(0.02)
+  var diff_max  = ee.Number(median.get('diff')).add(0.02)
+  var stab_mask = (boa_diff.lte(diff_max)).and(boa_diff.gte(diff_min)).and(boa_diff.abs().lt(0.03))
+  
+  var BLUE = image3.select('BLUE')
+  var pp   = BLUE.reduceRegion(ee.Reducer.percentile([10, 90]), geom)
+  var BLUE_min  = ee.Number(pp.get('BLUE_p10'))
+  var BLUE_max  = ee.Number(pp.get('BLUE_p90'))
+  var BLUE_mask = (image3.select('BLUE').lte(BLUE_max)).and(image3.select('BLUE').gte(BLUE_min))
+  
+  var SWIR2 = image.select('SWIR2').reproject('EPSG:4326', null, 500).float()
+  var pp = SWIR2.reduceRegion(ee.Reducer.percentile([10, 90]), geom)
+  var SWIR_min  = ee.Number(pp.get('SWIR2_p10'))
+  var SWIR_max  = ee.Number(pp.get('SWIR2_p90'))
+  var SWIR_mask = (SWIR2.lte(SWIR_max)).and(SWIR2.gte(SWIR_min))
+  image3 = image3.updateMask(BLUE_mask.and(stab_mask).and(image3.mask()).and(SWIR_mask ))
+  //Map.addLayer(image3.mask(), {}, 'stab_mask')
+  /*var options = {
+    title: 'Difference between TOA and simu SWIR2 after robust linear regression',
+    fontSize: 20,
+    hAxis: {title: 'Difference'},
+    vAxis: {title: 'count of DN'},
+    series: {
+      0: {color: 'blue'},
+      1: {color: 'green'},
+      2: {color: 'red'},
+      3: {color: 'magenta'}}
+  };
+  var histogram = ui.Chart.image.histogram(boa_diff, geom, 500)
+      .setSeriesNames(['Difference'])
+      .setOptions(options);
+  print(histogram)*/
+  
+  //var Output_Layer_offset = ee.Image.constant(0.11595643)
+  //print(image3)
+  var arrayImage1D = image3.toArray()
+  var arrayImage2D = arrayImage1D.toArray(1);
+  var imageAxis = 0;
+  var bandAxis = 1;
+  var arrayLength = arrayImage2D.arrayLength(imageAxis);
+  arrayImage2D = arrayImage2D//.updateMask(arrayLength.eq(13))
+  //print(arrayLength.getInfo())
+  var h1  = arrayImage2D.arrayTranspose().matrixMultiply(ee.Image(ee.Array(TNN.H1_scale))).add(ee.Image(ee.Array(TNN.H1_offset)).toArray(1).arrayTranspose())
+  var in1 = h1.max(ee.Image.constant(0))
+  var h2  = in1.matrixMultiply(ee.Image(ee.Array(TNN.H2_scale))).add(ee.Image(ee.Array(TNN.H2_offset)).toArray(1).arrayTranspose())
+  var in2 = h2.max(ee.Image.constant(0))
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(TNN.Out_scale)).toArray().toArray(1).arrayTranspose())
+  var aot = oup.arrayProject([0])
+               .arrayFlatten([['aot']])
+               .add(TNN.Out_offset)
+  
+  var pp = aot.reduceRegion(ee.Reducer.percentile([10, 50, 90]), geom)
+  var aot_min  = ee.Number(pp.get('aot_p10'))
+  var aot_max  = ee.Number(pp.get('aot_p90'))
+  var median   = ee.Number(pp.get('aot_p50'))
+  var aot_mask = (aot.lte(aot_max)).and(aot.gte(aot_min))
+  aot = aot.updateMask(aot_mask.and(aot.mask()))
+  
+  var filled_aot = aot.unmask().where(aot.mask().eq(0), ee.Number(median))
+  var kernelSize = 10
+  var ker = ee.Kernel.square(kernelSize * 500, "meters")
+  aot     = filled_aot.reduceNeighborhood({reducer: ee.Reducer.mean(), 
+                                          kernel: ker,
+                                          inputWeight: 'mask',
+                                          skipMasked:false,
+                                          optimization:'boxcar',
+                                         }).rename('aot')
+
+  var tcwv = ee.Image(1.2).rename('tcwv')
+  //var tco3 = tco3.reproject(     'EPSG:4326', null, 500).float().rename('tco3')
+  //var ele  = elevation.reproject('EPSG:4326', null, 500).float().rename('ele')
+  var ret  = ee.Image.cat([aot, tcwv, cloud])
+  return ret
+}
+  /*var options = {
+    title: 'Filled AOT',
+    fontSize: 20,
+    hAxis: {title: 'Difference'},
+    vAxis: {title: 'count of DN'},
+    series: {
+      0: {color: 'blue'},
+      1: {color: 'green'},
+      2: {color: 'red'},
+      3: {color: 'magenta'}}
+  };
+  var palettes = require('users/gena/packages:palettes');
+  var palette = palettes.colorbrewer.YlOrRd[9]
+  
+  Map.addLayer(filled_aot, {min:0.6, max:0.8, palette: palette}, 'AOT')
+  var histogram = ui.Chart.image.histogram(aot, geom, 500)
+      .setSeriesNames(['Difference'])
+      .setOptions(options);
+  print(histogram)*/                               
+  //parameters = [ "sza", "vza", "raa", "aod", "tcwv", "tco3", "elevation"]
+  //image3 = image3.addBands(ee.Image.constant(1.2).rename('tcwv')).addBands([filled_aot.rename('aot')])
+  //var saa  = ee.Image.constant(ee.Number(image.get('MEAN_SOLAR_AZIMUTH_ANGLE'))).rename('saa')
+  //var sza  = ee.Image.constant(ee.Number(image.get('MEAN_SOLAR_ZENITH_ANGLE' ))).rename('sza')
+  //var vaa  = ee.Image.constant(ee.Number(image.get('MEAN_INCIDENCE_AZIMUTH_ANGLE_B2'))).rename('vaa')
+  //var vza  = ee.Image.constant(ee.Number(image.get('MEAN_INCIDENCE_ZENITH_ANGLE_B2' ))).rename('vza')
+var siac_ac = function(image){
+  var cloud_date = image.date()  
+  var saa  = ee.Image.constant(ee.Number(image.get('MEAN_SOLAR_AZIMUTH_ANGLE'))).rename('saa')
+  var sza  = ee.Image.constant(ee.Number(image.get('MEAN_SOLAR_ZENITH_ANGLE' ))).rename('sza')
+  var vaa  = ee.Image.constant(ee.Number(image.get('MEAN_INCIDENCE_AZIMUTH_ANGLE_B2'))).rename('vaa')
+  var vza  = ee.Image.constant(ee.Number(image.get('MEAN_INCIDENCE_ZENITH_ANGLE_B2' ))).rename('vza')
+  var raa  = vaa.subtract(saa)
+  var deg2rad = ee.Number(Math.PI).divide(ee.Number(180.0))
+  var cos_sza = (sza.multiply(deg2rad)).cos()
+  var cos_vza = (vza.multiply(deg2rad)).cos()
+  var cos_raa = (raa.multiply(deg2rad)).cos()
+  var tco3 = ee.ImageCollection('TOMS/MERGED')
+                    .filterDate(cloud_date, ee.Date(cloud_date).advance(1, 'day'))
+                    .first()
+                    .select('ozone')
+                    .multiply(0.001)
+                    .rename('tco3')
+  var ele = ee.Image('USGS/SRTMGL1_003').select('elevation').multiply(0.001)
+  var aot     = image.select('aot')
+  var tcwv    = image.select('tcwv')
+  var res = 500
+  var image4 = ee.Image.cat([cos_sza, cos_vza, cos_raa, aot, tcwv, tco3, ele])
+                       .reproject('EPSG:4326', null, res).float()
+                       .clip(image.geometry())
+  //Map.addLayer(image4)
+  var arrayImage1D = image4.toArray()
+  //print(image4)
+  var arrayImage2D = arrayImage1D.toArray(1);
+  var imageAxis = 0;
+  var bandAxis  = 1;
+  var arrayLength = arrayImage2D.arrayLength(imageAxis);
+  arrayImage2D    = arrayImage2D
+  var h1  = arrayImage2D.arrayTranspose().matrixMultiply(ee.Image(ee.Array(ISO_AC.xap_H1_scale))).add(ee.Image(ee.Array(ISO_AC.xap_H1_offset)).toArray(1).arrayTranspose())
+  var in1 = h1.max(0)
+  var h2  = in1.matrixMultiply(ee.Image(ee.Array(ISO_AC.xap_H2_scale))).add(ee.Image(ee.Array(ISO_AC.xap_H2_offset)).toArray(1).arrayTranspose())
+  var in2 = h2.max(0)
+  
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xap_blue_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xap_blue = oup.arrayProject([0])
+               .arrayFlatten([['xap_blue']])
+               .add(ISO_AC.xap_blue_Out_offset)
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xap_green_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xap_green = oup.arrayProject([0])
+               .arrayFlatten([['xap_blue']])
+               .add(ISO_AC.xap_green_Out_offset)
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xap_red_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xap_red = oup.arrayProject([0])
+               .arrayFlatten([['xap_red']])
+               .add(ISO_AC.xap_red_Out_offset)
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xap_nir_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xap_nir = oup.arrayProject([0])
+               .arrayFlatten([['xap_nir']])
+               .add(ISO_AC.xap_nir_Out_offset)
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xap_swir1_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xap_swir1 = oup.arrayProject([0])
+               .arrayFlatten([['xap_swir1']])
+               .add(ISO_AC.xap_swir1_Out_offset)
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xap_swir2_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xap_swir2 = oup.arrayProject([0])
+               .arrayFlatten([['xap_swir2']])
+               .add(ISO_AC.xap_swir2_Out_offset)
+               
+  var h1  = arrayImage2D.arrayTranspose().matrixMultiply(ee.Image(ee.Array(ISO_AC.xbp_H1_scale))).add(ee.Image(ee.Array(ISO_AC.xbp_H1_offset)).toArray(1).arrayTranspose())
+  var in1 = h1.max(0)
+  var h2  = in1.matrixMultiply(ee.Image(ee.Array(ISO_AC.xbp_H2_scale))).add(ee.Image(ee.Array(ISO_AC.xbp_H2_offset)).toArray(1).arrayTranspose())
+  var in2 = h2.max(0)
+  
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xbp_blue_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xbp_blue = oup.arrayProject([0])
+               .arrayFlatten([['xbp_blue']])
+               .add(ISO_AC.xbp_blue_Out_offset)
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xbp_green_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xbp_green = oup.arrayProject([0])
+               .arrayFlatten([['xbp_green']])
+               .add(ISO_AC.xbp_green_Out_offset)
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xbp_red_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xbp_red = oup.arrayProject([0])
+               .arrayFlatten([['xbp_red']])
+               .add(ISO_AC.xbp_red_Out_offset)
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xbp_nir_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xbp_nir = oup.arrayProject([0])
+               .arrayFlatten([['xbp_nir']])
+               .add(ISO_AC.xbp_nir_Out_offset)
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xbp_swir1_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xbp_swir1 = oup.arrayProject([0])
+               .arrayFlatten([['xbp_swir1']])
+               .add(ISO_AC.xbp_swir1_Out_offset)
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xbp_swir2_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xbp_swir2 = oup.arrayProject([0])
+               .arrayFlatten([['xbp_swir2']])
+               .add(ISO_AC.xbp_swir2_Out_offset)
+  
+  var h1  = arrayImage2D.arrayTranspose().matrixMultiply(ee.Image(ee.Array(ISO_AC.xcp_H1_scale))).add(ee.Image(ee.Array(ISO_AC.xcp_H1_offset)).toArray(1).arrayTranspose())
+  var in1 = h1.max(0)
+  var h2  = in1.matrixMultiply(ee.Image(ee.Array(ISO_AC.xcp_H2_scale))).add(ee.Image(ee.Array(ISO_AC.xcp_H2_offset)).toArray(1).arrayTranspose())
+  var in2 = h2.max(0)
+  
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xcp_blue_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xcp_blue = oup.arrayProject([0])
+               .arrayFlatten([['xcp_blue']])
+               .add(ISO_AC.xcp_blue_Out_offset)
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xcp_green_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xcp_green = oup.arrayProject([0])
+               .arrayFlatten([['xcp_green']])
+               .add(ISO_AC.xcp_green_Out_offset)
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xcp_red_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xcp_red = oup.arrayProject([0])
+               .arrayFlatten([['xcp_red']])
+               .add(ISO_AC.xcp_red_Out_offset)
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xcp_nir_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xcp_nir = oup.arrayProject([0])
+               .arrayFlatten([['xcp_nir']])
+               .add(ISO_AC.xcp_nir_Out_offset)
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xcp_swir1_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xcp_swir1 = oup.arrayProject([0])
+               .arrayFlatten([['xcp_swir1']])
+               .add(ISO_AC.xcp_swir1_Out_offset)
+  var oup = in2.matrixMultiply(ee.Image(ee.Array(ISO_AC.xcp_swir2_Out_scale)).toArray().toArray(1).arrayTranspose())
+  var xcp_swir2 = oup.arrayProject([0])
+               .arrayFlatten([['xcp_swir2']])
+               .add(ISO_AC.xcp_swir2_Out_offset)
+               
+  var y         = image.select('BLUE').multiply(xap_blue).subtract(xbp_blue); 
+  var blue_boa = y.divide(xcp_blue.multiply(y).add(ee.Image(1))).rename('B02')
+  
+  var y         = image.select('GREEN').multiply(xap_green).subtract(xbp_green); 
+  var green_boa = y.divide(xcp_green.multiply(y).add(ee.Image(1))).rename('B03')
+  
+  var y         = image.select('RED').multiply(xap_red).subtract(xbp_red); 
+  var red_boa = y.divide(xcp_red.multiply(y).add(ee.Image(1))).rename('B04')
+  
+  var y         = image.select('NIR').multiply(xap_nir).subtract(xbp_nir); 
+  var nir_boa = y.divide(xcp_nir.multiply(y).add(ee.Image(1))).rename('B08')
+  
+  var y         = image.select('SWIR1').multiply(xap_swir1).subtract(xbp_swir1); 
+  var swir1_boa = y.divide(xcp_swir1.multiply(y).add(ee.Image(1))).rename('B11')
+  
+  var y         = image.select('SWIR2').multiply(xap_swir2).subtract(xbp_swir2); 
+  var swir2_boa = y.divide(xcp_swir2.multiply(y).add(ee.Image(1))).rename('B12')
+  var fname = ee.String(image.get('PRODUCT_ID')).getInfo() 
+  var boa   = ee.Image.cat([blue_boa, green_boa, red_boa, nir_boa, swir1_boa, swir2_boa]).multiply(10000).toInt()
+  Export.image.toDrive({
+              image: boa,
+              description: fname + '_sur',
+              scale: 10,
+              fileFormat: 'GeoTIFF',
+              folder:'S2_SUR',
+              region: image.geometry(),
+              maxPixels: 1e13
+             })
+  
+  /*Export.image.toDrive({
+              image: green_boa,
+              description: fname + '_B03',
+              scale: 10,
+              fileFormat: 'GeoTIFF',
+              folder:'S2_SUR',
+              region: image.geometry(),
+              maxPixels: 1e13
+             })
+  Export.image.toDrive({
+              image: red_boa,
+              description: fname + '_B04',
+              scale: 10,
+              fileFormat: 'GeoTIFF',
+              folder:'S2_SUR',
+              region: image.geometry(),
+              maxPixels: 1e13
+             })
+  Export.image.toDrive({
+              image: nir_boa,
+              description: fname + '_B08',
+              scale: 10,
+              fileFormat: 'GeoTIFF',
+              folder:'S2_SUR',
+              region: image.geometry(),
+              maxPixels: 1e13
+             })
+  Export.image.toDrive({
+              image: swir1_boa,
+              description: fname + '_B11',
+              scale: 20,
+              fileFormat: 'GeoTIFF',
+              folder:'S2_SUR',
+              region: image.geometry(),
+              maxPixels: 1e13
+              })
+  Export.image.toDrive({
+              image: swir2_boa,
+              description: fname + '_B12',
+              scale: 20,
+              fileFormat: 'GeoTIFF',
+              folder:'S2_SUR',
+              region: image.geometry(),
+              maxPixels: 1e13
+             })*/
+  Export.image.toDrive({
+              image: image.select('cloud').toByte(),
+              description: fname+ '_cloud',
+              scale: 60,
+              fileFormat: 'GeoTIFF',
+              folder:'S2_SUR',
+              region: image.geometry(),
+              maxPixels: 1e13
+             })
+  aot = aot.multiply(100).toInt().reproject(image.select('BLUE').projection(), null, 500)
+  Export.image.toDrive({
+              image: aot,
+              description: fname + '_aot',
+              scale: 500,
+              fileFormat: 'GeoTIFF',
+              folder:'S2_SUR',
+              region: image.geometry(),
+              maxPixels: 1e13
+             })
+  Export.image.toDrive({
+              image: tcwv,
+              description: fname + '_wv',
+              scale: 500,
+              fileFormat: 'GeoTIFF',
+              folder:'S2_SUR',
+              region: image.geometry(),
+              maxPixels: 1e13
+             })
+  Export.image.toDrive({
+              image: tco3,
+              description: fname + '_o3',
+              scale: 500,
+              fileFormat: 'GeoTIFF',
+              folder:'S2_SUR',
+              region: image.geometry(),
+              maxPixels: 1e13
+             })
+}    
+
+var s2_file = '20180115T030049_20180115T030132_T50SND'
+var s2_file = '20190303T184259_20190303T184825_T10SGF'
+
+var image = ee.ImageCollection('COPERNICUS/S2').filterMetadata('system:index', 'equals', s2_file)
+                       .first()
+var atmo_paras = get_atmo_paras(get_cloud(image))
+var image = ee.ImageCollection('COPERNICUS/S2').filterMetadata('system:index', 'equals', s2_file)
+                       //.map(get_cloud)
+                       .first()
+siac_ac(image.addBands(atmo_paras))
+
+// Load an image.
+/*
+var image = ee.Image('LANDSAT/LC08/C01/T1_TOA/LC08_044034_20140318');
+
+// Define the visualization parameters.
+var vizParams = {
+  bands: ['B5', 'B4', 'B3'],
+  min: 0,
+  max: 0.5,
+  gamma: [0.95, 1.1, 1]
+};
+
+// Center the map and display the image.
+Map.setCenter(-122.1899, 37.5010, 10); // San Francisco Bay
+Map.addLayer(image, vizParams, 'false color composite');
+
+
+
+
+var clipButton = ui.Button({
+    label: 'Clip image',
+    onClick: function() {
+      var layers_as_features = Map.layers().map(function (lyr) {
+                                                                var ftr = ee.Feature(lyr.getEeObject().geometry(), 
+                                                                                    {name: lyr.getName()})
+                                                                return ftr
+                                                                });
+      var geometry = ee.FeatureCollection(layers_as_features).filter(ee.Filter.eq("name", "geometry"))
+
+      Map.addLayer(image.clip(geometry), vizParams, 'clipped');
+    },
+    style: {
+        color: 'blue',
+    },
+});
+
+print(clipButton);*/
+
+
+
+
+
+
+
+
+
+//Map.addLayer(boa, rgbVis, 'corrected boa')
+//print(aot)
+/*var palettes = require('users/gena/packages:palettes')
+//palettes.colorbrewer
+var palette = palettes.colorbrewer.RdPu[9]
+var aotVis = {
+  min: 0.4,
+  max: 0.8,
+  bands: ['aot'],
+  opacity: 0.4,
+  palette: palette,
+};
+var palette = palettes.colorbrewer.YlGnBu[9]
+//Map.addLayer(aot, {}, 'AOT')
+//Map.addLayer(aot, aotVis, 'AOT')
+var aotVis = {
+  min: 0.4,
+  max: 0.8,
+  bands: ['filled_aot'],
+  opacity: 0.4,
+  palette: palette,
+};
+//Map.addLayer(filled_aot, aotVis, 'filled AOT')
+var options = {
+  title: 'AOT',
+  fontSize: 20,
+  hAxis: {title: 'AOT'},
+  vAxis: {title: 'count of DN'},
+  series: {
+    0: {color: 'blue'},
+    1: {color: 'green'},
+    2: {color: 'red'},
+    3: {color: 'magenta'}}
+};
+var histogram = ui.Chart.image.histogram(aot, image.geometry(), 500)
+    .setSeriesNames(['AOT'])
+    .setOptions(options);
+
+// Display the histogram.
+//print(histogram);
+var histogram = ui.Chart.image.histogram(filled_aot, image.geometry(), 500)
+    .setSeriesNames(['filled AOT'])
+    .setOptions(options);
+    
+*/
+// Display the histogram.
+//print(histogram);
+/*print(cos_raa)
+print(cos_vza)
+print(cos_sza)
+var image_1D = image.toArray();
+var mcd43a1_1D = mcd43a1.toArray();
+print(mcd43a1_1D.subtract(image_1D))*/
+
+//var this_date_NCP_cloud = NCP_dataset.select('cloud').mosaic()
+
+//Map.addLayer(this_date_NCP_cloud, cloudVis, 'cloud')
+
+/*var fname = 'S2_MSI_'+ cloud_date +'_cloud'
+
+Export.image.toDrive({
+            image: this_date_NCP_cloud,
+            description: fname,
+            scale: 30,
+            fileFormat: 'GeoTIFF',
+            folder:'S2_CLOUD',
+            region: this_date_NCP_cloud.geometry(),
+            maxPixels: 1e13,
+            formatOptions: {
+              cloudOptimized: true
+            }
+           })
+*/
