@@ -8,7 +8,7 @@
 var tnn = require('users/marcyinfeng/SIAC:Two_NN')
 var S2_offsets = require('users/marcyinfeng/SIAC:S2_RAD_Offsets')
 var S2_scales  = require('users/marcyinfeng/SIAC:S2_RAD_Scales')
-var bands = ee.List(['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09', 'B10', 'B11', 'B12'])
+var bands = ee.List(['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A',  'B11', 'B12'])
 
 var predict = function(image, H1_scale, H1_offset, H2_scale, H2_offset, Out_scales, Out_offsets){
   var arrayImage1D = image.toArray()
@@ -486,7 +486,7 @@ var S2B_AC = function(control, image){
                              S2_scales.S2B_xcp_Out_scale, S2_offsets.S2B_xcp_Out_offset)
   var ret   = [];
   var i;
-  for (i=0; i<13; i++){
+  for (i=0; i<11; i++){
     var y = image.select([bands.get(i)]).multiply(ee.Image(xap.get(i))).subtract(ee.Image(xbp.get(i)));
     var boa = y.divide(ee.Image(xcp.get(i)).multiply(y).add(ee.Image(1))).rename([bands.get(i)])
     ret.push(boa)

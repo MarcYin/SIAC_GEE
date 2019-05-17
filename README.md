@@ -1,4 +1,4 @@
-# [SIAC on GEE](https://code.earthengine.google.com/4e38501eb0a37695be7a930de650ce2d)
+# [SIAC on GEE](https://code.earthengine.google.com/1c8bcd4e427d631701b284c1edacb108)
 ### Feng Yin
 ### Department of Geography, UCL
 ### ucfafyi@ucl.ac.uk

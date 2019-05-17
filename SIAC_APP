@@ -5,6 +5,9 @@
 // Github: https://github.com/MarcYin/SIAC
 // DOI: https://eartharxiv.org/ps957/
 // LICENSE: GNU GENERAL PUBLIC LICENSE V3
+var point = ui.Map.Layer(ee.Geometry.Point(-0.1237, 51.5126), {color: 'FF0000'})
+Map.centerObject(ee.Geometry.Point(-0.1237, 51.5126), 6)
+Map.layers().set(0, point);
 var siac = require('users/marcyinfeng/SIAC:SIAC_AC_ALL')
 var collection = ee.ImageCollection('COPERNICUS/S2');
 // Use the start of the collection and now to bound the slider.
@@ -57,12 +60,16 @@ var app = function(){
                      fontFamily : 'serif',
                      padding    : '10px'}
                      }));
+
+
   
   Map.onClick(function(coords) {
     geometry = ee.Geometry.Point(coords.lon, coords.lat);
     var location = 'lon: ' + coords.lon.toFixed(2) + ' ' +
                    'lat: ' + coords.lat.toFixed(2);
-    Map.layers().set(1, ui.Map.Layer(geometry, {color: 'FF0000'}));
+    Map.remove(point)
+    point = ui.Map.Layer(geometry, {color: 'FF0000'})
+    Map.layers().set(0, point);
     panel.widgets().set(0, ui.Label(location))
     s2_data = collection.filterDate(start_date, end_date)
                             .filterBounds(geometry)
@@ -160,6 +167,8 @@ var app = function(){
                                 gamma: [1., 1., 1]
                               });
         Map.centerObject(image)
+        // Map.remove(Map.layers().get(0))
+        // Map.remove(Map.layers().get(1))
         Map.layers().set(0, image)
         Map.layers().set(1, ui.Map.Layer(geometry, {color: 'FF0000'}))
       }})
