@@ -104,11 +104,11 @@ var siac = function(image){
 // var id = 'S2A_MSIL1C_20190227T030651_N0207_R075_T50SMG_20190227T074020'
 // var image = ee.ImageCollection('COPERNICUS/S2').filterMetadata('PRODUCT_ID', 'equals', id)
                       // .first()
-var s2_file = '20190122T034049_20190122T034312_T47PPR'
-var image = ee.ImageCollection('COPERNICUS/S2').filterMetadata('system:index', 'equals', s2_file)
-                      .first()
+// var s2_file = '20190122T034049_20190122T034312_T47PPR'
+// var image = ee.ImageCollection('COPERNICUS/S2').filterMetadata('system:index', 'equals', s2_file)
+//                       .first()
 
-//print(image)
-siac(image)
+// //print(image)
+// siac(image)
 exports.siac = siac
 

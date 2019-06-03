@@ -73,37 +73,28 @@ var get_boa = function(image){
   var cos_sza = image.select('cos_sza')
   var cos_vza = image.select('cos_vza')
   var tco3 = ee.ImageCollection('TOMS/MERGED')
-                    .filterDate(image_date, ee.Date(image_date).advance(1, 'day'))
-                    .first()
+                    .filterDate(ee.Date(image_date).advance(-3, 'day'), ee.Date(image_date).advance(4, 'day'))
+                    .mean()
+                    //.first()
                     .select('ozone')
                     .multiply(0.001)
-                    
-  var kernelSize = 800
-  var ker = ee.Kernel.square(kernelSize * 500, "meters")
-  var tco3 =tco3.reduceNeighborhood({reducer: ee.Reducer.mean(), 
-                                      kernel: ker,
-                                      inputWeight: 'mask',
-                                      skipMasked:false,
-                                      optimization:'boxcar',
-                                      }).rename('ozone') 
-                        .reduceRegion(ee.Reducer.mean(), geom)
-  var tco3  = ee.Image(ee.Number(tco3.get('ozone'))).rename('tco3')
+                    .clip(geom)
+  var median = tco3.reduceRegion(ee.Reducer.percentile([50]), geom, 3000, null, null, false, 10e13).get('ozone')
+  var tco3 = tco3.unmask().where(tco3.mask().eq(0), ee.Number(median))
+  // var kernelSize = 800
+  // var ker = ee.Kernel.square(kernelSize * 500, "meters")
+  // var tco3 =tco3.reduceNeighborhood({reducer: ee.Reducer.mean(), 
+  //                                     kernel: ker,
+  //                                     inputWeight: 'mask',
+  //                                     skipMasked:false,
+  //                                     optimization:'boxcar',
+  //                                     }).rename('ozone') 
+  //                       //.reduceRegion(ee.Reducer.mean(), geom)
+  //Map.addLayer(tco3, {min:0.1, max:0.5}) 
+  //var tco3  = ee.Image(ee.Number(tco3.get('ozone'))).rename('tco3')
   var elevation = ee.Image('USGS/SRTMGL1_003').select('elevation').multiply(0.001)
-  // var image3 = ee.Image.cat([image.select('BLUE').reproject(crs, null, 500).float(), 
-  //                           image.select('GREEN').reproject(crs, null, 500).float(), 
-  //                           mcd43a1.select('BRDF_Albedo_Parameters_Band3_iso').reproject(crs, null, 500).float(),
-  //                           mcd43a1.select('BRDF_Albedo_Parameters_Band3_vol').reproject(crs, null, 500).float(),
-  //                           mcd43a1.select('BRDF_Albedo_Parameters_Band3_geo').reproject(crs, null, 500).float(),
-  //                           mcd43a1.select('BRDF_Albedo_Parameters_Band4_iso').reproject(crs, null, 500).float(),
-  //                           mcd43a1.select('BRDF_Albedo_Parameters_Band4_vol').reproject(crs, null, 500).float(),
-  //                           mcd43a1.select('BRDF_Albedo_Parameters_Band4_geo').reproject(crs, null, 500).float(),
-  //                           cos_sza.reproject(crs, null, 500).float(),
-  //                           cos_vza.reproject(crs, null, 500).float(),
-  //                           cos_raa.reproject(crs, null, 500).float(),
-  //                           tco3.reproject(crs, null, 500).float().rename('tco3'),
-  //                           elevation.reproject(crs, null, 500).float().rename('ele'),
-  //                           ]).clip(geom).float()
-    var image3 = ee.Image.cat([image.select('BLUE'), image.select('GREEN'), 
+    var image3 = ee.Image.cat([(image.select('BLUE').subtract(1.381298790609708504e-02)).divide(1.006170958348520772e+00), 
+                               (image.select('GREEN').subtract(0.00190909687075)).divide(1.00087659541449), 
                                mcd43a1.select('BRDF_Albedo_Parameters_Band3_iso'),
                                mcd43a1.select('BRDF_Albedo_Parameters_Band3_vol'),
                                mcd43a1.select('BRDF_Albedo_Parameters_Band3_geo'),
@@ -111,9 +102,9 @@ var get_boa = function(image){
                                mcd43a1.select('BRDF_Albedo_Parameters_Band4_vol'),
                                mcd43a1.select('BRDF_Albedo_Parameters_Band4_geo'),
                                cos_sza, cos_vza, cos_raa, tco3.rename('tco3'), elevation.rename('ele')])
-                         .reproject(crs, null, 500).float()
+                         .reproject(crs, null, 3000).float()
                          .clip(geom).float()
-                         
+                      
   var boa_diff  = image.select('simu_boa_b5').subtract(image.select('SWIR1')).rename('diff')
   var pp = boa_diff.reduceRegion(ee.Reducer.percentile([15, 50, 85]), geom, 3000, null, null, false, 10e13)
   var diff_min  = ee.Number(pp.get('diff_p15'))
@@ -178,16 +169,15 @@ var get_boa = function(image){
                                           skipMasked:false,
                                           optimization:'boxcar',
                                         }).rename('aot')
-  aot = aot.max(0.001)
-
-  // var aot = ee.Image(0.13).rename('aot')
-  // aot = filled_aot.convolve(ee.Kernel.gaussian({radius: 3000, sigma: 1000, units: 'meters',normalize: true,})).rename('aot')
-  //Map.addLayer(filled_aot, {min:0.13, max:0.2, palette: palette}, 'AOT')
+  aot = aot.max(0.01)
+  // var palettes = require('users/gena/packages:palettes');
+  // var palette = palettes.colorbrewer.YlOrRd[9]
+  // Map.addLayer(aot, {min:0.13, max:0.4, palette: palette}, 'AOT')
   var control = ee.Image.cat([ image2.select('B9'), 
                                image2.select('B8A'), 
                                cos_sza, cos_vza, cos_raa, aot, tco3, elevation])
                               .updateMask(dia_cloud.eq(0).and(image2.select('B8A').gt(0.12)))//.and(dia_shadow.eq(0))
-                              .reproject(crs, null, 500).float()
+                              .reproject(crs, null, 3000).float()
                               .float()
   var tcwv = tnn.predict(control,inverse_S2_TCWV.Inverse_S2_TCWV_H1_scale,
                                 inverse_S2_TCWV.Inverse_S2_TCWV_H1_offset,
@@ -196,7 +186,7 @@ var get_boa = function(image){
                                 inverse_S2_TCWV.Inverse_S2_TCWV_Out_scale,
                                 inverse_S2_TCWV.Inverse_S2_TCWV_Out_offset).rename('tcwv')
   
-  var pp = tcwv.reduceRegion(ee.Reducer.percentile([10, 50, 90]), geom, 5000, null, null, false, 10e13)
+  var pp = tcwv.reduceRegion(ee.Reducer.percentile([10, 50, 90]), geom, 3000, null, null, false, 10e13)
   var tcwv_min  = ee.Number(pp.get('tcwv_p10'))
   var tcwv_max  = ee.Number(pp.get('tcwv_p90'))
   var median    = ee.Number(pp.get('tcwv_p50'))
@@ -211,8 +201,9 @@ var get_boa = function(image){
                                           skipMasked:false,
                                           optimization:'boxcar',
                                         }).rename('tcwv')
-  tcwv = tcwv.max(0.001)
-   
+  tcwv = tcwv.max(0.01)
+  // var palette = palettes.colorbrewer.YlOrRd[9]
+  // Map.addLayer(tcwv, {min:0.5, max:4., palette: palette}, 'TCWV')
   image = orig_image
   var saa  = ee.Image.constant(ee.Number(image.get('MEAN_SOLAR_AZIMUTH_ANGLE'))).rename('saa')
   var sza  = ee.Image.constant(ee.Number(image.get('MEAN_SOLAR_ZENITH_ANGLE' ))).rename('sza')
@@ -224,7 +215,7 @@ var get_boa = function(image){
   var cos_vza = (vza.multiply(deg2rad)).cos()
   var cos_raa = (raa.multiply(deg2rad)).cos()
   var ele = ee.Image('USGS/SRTMGL1_003').select('elevation').multiply(0.001)
-  var res = 500
+  var res = 3000
   var image4 = ee.Image.cat([cos_sza, cos_vza, cos_raa, aot, tcwv, tco3, ele])
                        .reproject(crs, null, res).float()
                        .clip(geom)
@@ -233,10 +224,10 @@ var get_boa = function(image){
   var new_name = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A',  'B11', 'B12']
   
   var boa = s2b_ac.S2B_AC(image4, image2.select(name, new_name))
-  // Map.addLayer(boa, {bands: ['B04', 'B03', 'B02']}, 'BOA')
+  // Map.addLayer(boa, {bands: ['B04', 'B03', 'B02'], min:0, max:0.2}, 'BOA')
   // Map.addLayer(image2, {bands: ['B4', 'B3', 'B2'], min:0, max:0.2}, 'TOA')
-  // //Map.addLayer(prior_aot)
-  // Map.centerObject(image3)
+  // Map.addLayer(image4)
+  // Map.centerObject(image4)
   return ee.Image(boa.select(new_name, name))
                 .addBands([aot.rename('AOT'), 
                           tcwv.rename('WVP'), 
@@ -244,11 +235,17 @@ var get_boa = function(image){
                           tco3.rename('TCO3')])
 
 }
-// var s2_file = '20190122T034049_20190122T034312_T47PPR'
+// var s2_file = '20190127T034021_20190127T034019_T47PPR'
 // var image = ee.ImageCollection('COPERNICUS/S2').filterMetadata('system:index', 'equals', s2_file)
 //                       .first()
-//print(image)
-//print(get_boa(image))
+// print(image)
+// print(get_boa(image))
+
+// var id = 'S2B_MSIL1C_20190513T030549_N0207_R075_T50SLG_20190513T054821'
+// var image = ee.ImageCollection('COPERNICUS/S2').filterMetadata('PRODUCT_ID', 'equals', id)
+//                       .first()
+// print(image)
+// print(get_boa(image))
 exports.get_boa = get_boa
 
 

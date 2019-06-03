@@ -5,6 +5,27 @@
 // Github: https://github.com/MarcYin/SIAC
 // DOI: https://eartharxiv.org/ps957/
 // LICENSE: GNU GENERAL PUBLIC LICENSE V3
+
+var tnn = require('users/marcyinfeng/SIAC:Two_NN')
+var Sen2Cloud = require('users/marcyinfeng/SIAC:Sen2Cloud')
+
+function get_cloud_prob(image){
+  var projection = image.select('B2').projection()
+  var crs = projection.crs()
+  var cloud_bands = ['B1', 'B2', 'B4', 'B5', 'B8', 'B8A', 'B9', 'B10', 'B11', 'B12']
+  var control = image.select(cloud_bands).multiply(0.0001).reproject(crs, null, 10)
+  var cloud = tnn.predict(control, Sen2Cloud.Sen2Cloud_H1_scale,
+                          Sen2Cloud.Sen2Cloud_H1_offset,
+                          Sen2Cloud.Sen2Cloud_H2_scale,
+                          Sen2Cloud.Sen2Cloud_H2_offset,
+                          Sen2Cloud.Sen2Cloud_Out_scale,
+                          Sen2Cloud.Sen2Cloud_Out_offset).rename('cloud_prob')
+  var cloud_prob = ee.Image(1).divide(ee.Image(1).add((ee.Image(-1).multiply(cloud)).exp()))
+  //var cloud = cloud_prob.gt(0.4).rename('cloud')
+  return image.addBands(cloud_prob.rename('cloud_prob'))
+}
+
+
 var s2_bands = ['B2', 'B3', 'B4', 'B8', 'B11', 'B12', 'B10', 'B8A', 'B7']
 var l8_bands = ['B2', 'B3', 'B4', 'B5', 'B6',  'B7',  'B9',  'B10', 'B8']
 var l7_bands = ['B1', 'B2', 'B3', 'B4', 'B5',  'B7']
@@ -61,21 +82,25 @@ function CDI(image){
   var R_8A_7 = image.select('EB2').divide(image.select('EB1')).rename('R_8A_7');
   
   var V_8A_8 = R_8A_8.reduceNeighborhood({
-                      reducer: ee.Reducer.variance(),
-                      //reducer: ee.Reducer.stdDev(),
-                      kernel: ee.Kernel.circle({radius: 14, units: 'pixels'})
+                      //reducer: ee.Reducer.variance(),
+                      reducer: ee.Reducer.stdDev(),
+                      kernel: ee.Kernel.circle({radius: 140, units: 'meters'})
     
   });
   var V_8A_7 = R_8A_7.reduceNeighborhood({
-                      reducer: ee.Reducer.variance(),
-                      //reducer: ee.Reducer.stdDev(),
-                      kernel: ee.Kernel.circle({radius: 14, units: 'pixels'}),
+                      //reducer: ee.Reducer.variance(),
+                      reducer: ee.Reducer.stdDev(),
+                      kernel: ee.Kernel.circle({radius: 140, units: 'meters'}),
   });
 
   var cdi = (V_8A_7.subtract(V_8A_8)).divide(V_8A_7.add(V_8A_8)).rename('CDI')
-  var select = image.select('PCP').and(cdi.lt(-0.25))
-  var CDI_Cloud = select.rename('CDI_Cloud')
-  return image.addBands([CDI_Cloud, cdi]).updateMask(CDI_Cloud.eq(0))//.select(common_bands.slice(0,7)) 
+  return image.addBands(cdi)
+}
+
+function CDI_mask(image){
+  image = CDI(image)
+  var CDI_Cloud = (image.select('PCP').and(image.select('CDI').lt(-0.25))).rename('CDI_Cloud')
+  return image.addBands([CDI_Cloud]).updateMask(CDI_Cloud.eq(0)) 
 }
 
 function s2_scale(image){
@@ -183,9 +208,66 @@ function l8_add_angs(image){
   return image
 }
 
+
+
+/***
+ * Implementation of Basic cloud shadow shift
+ * 
+ * Author: Gennadii Donchyts
+ * License: Apache 2.0
+ */
+  // var shadows = cloudHeights.map(function(cloudHeight){
+  //   cloudHeight = ee.Number(cloudHeight);
+  //   var dist_move = vza.tan().multiply(cloudHeight)
+  //   var delt_x = dist_move.multiply((vaa).sin())
+  //   var delt_y = dist_move.multiply((vaa).cos())
+    
+  //   var shadowCastedDistance = zenR.tan().multiply(cloudHeight);//Distance shadow is cast
+  //   var x = azR.sin().multiply(shadowCastedDistance).divide(nominalScale);//X distance of shadow
+  //   var y = azR.cos().multiply(shadowCastedDistance).divide(nominalScale);//Y distance of shadow
+  //   // print(x,y)
+   
+  //   return cloudMask.changeProj(cloudMask.projection(), cloudMask.projection().translate(x, y));
+    
+    
+  // });
+function projectShadows(cloudMask, cloudHeights, sza, saa){
+  var nominalScale = cloudMask.projection().nominalScale();
+  var azR  = ee.Number(saa).add(180).multiply(Math.PI).divide(180.0);
+  var zenR = ee.Number(sza).multiply(Math.PI).divide(180.0);
+  var shadows = cloudHeights.map(function(cloudHeight){
+    cloudHeight = ee.Number(cloudHeight);
+    
+    var shadowCastedDistance = zenR.tan().multiply(cloudHeight);//Distance shadow is cast
+    var x = azR.sin().multiply(shadowCastedDistance).divide(nominalScale);//X distance of shadow
+    var y = azR.cos().multiply(shadowCastedDistance).divide(nominalScale);//Y distance of shadow
+    return cloudMask.changeProj(cloudMask.projection(), cloudMask.projection().translate(x, y));
+  });
+  var shadowMask = ee.ImageCollection.fromImages(shadows).max();
+  return shadowMask
+}
+
+function get_cloud_prob(image){
+
+  var cloud_bands = ['B1', 'B2', 'B4', 'B5', 'B8', 'B8A', 'B9', 'B10', 'B11', 'B12']
+  var control = image.select(cloud_bands).multiply(0.0001)
+  var cloud = tnn.predict(control, Sen2Cloud.Sen2Cloud_H1_scale,
+                          Sen2Cloud.Sen2Cloud_H1_offset,
+                          Sen2Cloud.Sen2Cloud_H2_scale,
+                          Sen2Cloud.Sen2Cloud_H2_offset,
+                          Sen2Cloud.Sen2Cloud_Out_scale,
+                          Sen2Cloud.Sen2Cloud_Out_offset).rename('cloud_prob')
+  var cloud_prob = ee.Image(1).divide(ee.Image(1).add((ee.Image(-1).multiply(cloud)).exp()))
+  //var cloud = cloud_prob.gt(0.4).rename('cloud')
+  return cloud_prob.rename('cloud_prob')
+}
+
 function get_cloud(image){
-    var T_start = image.date().advance(-25, 'day')
-    var T_end   = image.date().advance( 25, 'day')
+    var projection = image.select('B2').projection()
+    var crs = projection.crs()
+    var cloud_prob = get_cloud_prob(image)
+    var T_start = image.date().advance(-20, 'day')
+    var T_end   = image.date().advance( 20, 'day')
     var roi = image.geometry()
     var l8_dataset = ee.ImageCollection('LANDSAT/LC08/C01/T1_TOA')
                       .filterDate(T_start, T_end)
@@ -206,17 +288,17 @@ function get_cloud(image){
                       .select(s2_bands, common_bands)
                       .map(s2_scale)
                       .map(PCP_Sentinel2)
-                      .map(CDI)
+                      .map(CDI_mask)
     //print(l8_dataset)
     //print(s2_dataset)
     var this_image = image.select(s2_bands, common_bands)
-    this_image = ee.Image(s2_scale(this_image))
-    this_image = PCP_Sentinel2(this_image)
-    this_image = CDI(this_image)
+    this_image     = ee.Image(s2_scale(this_image))
+    this_image     = PCP_Sentinel2(this_image)
+    this_image     = CDI(this_image)
     var cdi       = this_image.select('CDI').unmask()
     var NDSI      = ee.Image(this_image.select('NDSI')).unmask()
     var PCP       = ee.Image(this_image.select('PCP')).unmask()
-    var CDI_cloud = ee.Image(this_image.select('CDI_Cloud')).unmask()
+    var CDI_cloud = ee.Image(CDI_mask(this_image).select('CDI_Cloud')).unmask()
     var snow       = NDSI.gt(0.15).and(image.select('B11').gt(0.1100))
                                   .and(image.select('B8A'  ).gt(0.1000)).rename('snow')
     var sel_bands = common_bands.slice(0,6)//.concat(['sza', 'saa', 'vza', 'vaa'])
@@ -226,23 +308,42 @@ function get_cloud(image){
     image = s2_add_angs(image)
     var fitted = merged_datasets.median()
     var angs = image.select(['sza', 'saa', 'vza', 'vaa'])
-    fitted   = fitted.select(common_bands.slice(0,4)).clip(image.geometry())
+    fitted   = fitted.select(common_bands.slice(0, 6)).clip(image.geometry())
     //Map.addLayer(angs, {},'angs', false)
     image = image.select(s2_bands.slice(0,6), common_bands.slice(0,6))
                  .divide(10000)
-    var diff = image.select(common_bands.slice(0,4)).subtract(fitted)
-                    .select(common_bands.slice(0,4), ['diff_BLUE', 'diff_GREEN', 'diff_RED', 'diff_NIR'])
+    // var diff = image.select(common_bands.slice(0,4)).subtract(fitted)
+    //                 .select(common_bands.slice(0,4), ['diff_BLUE', 'diff_GREEN', 'diff_RED', 'diff_NIR'])
+    var diff = image.select(common_bands.slice(0,6)).subtract(fitted)
+                    .select(common_bands.slice(0,6), ['diff_BLUE', 'diff_GREEN', 'diff_RED', 'diff_NIR', 'diff_SWIR1', 'diff_SWIR2'])
+                    
     image    = image.addBands(fitted.select(common_bands.slice(0,4), 
                                  ['fitted_BLUE', 'fitted_GREEN', 'fitted_RED', 'fitted_NIR']))
-    var bad_pixel = fitted.select('BLUE' ).lt(0.0001)
-                .or(fitted.select('GREEN').lt(0.0001))
-                .or(fitted.select('RED'  ).lt(0.0001))
-                .or(fitted.select('NIR'  ).lt(0.0001))
+    // var bad_pixel = fitted.select('BLUE' ).lt(0.0001)
+    //             .or(fitted.select('GREEN').lt(0.0001))
+    //             .or(fitted.select('RED'  ).lt(0.0001))
+    //             .or(fitted.select('NIR'  ).lt(0.0001))
+    var bad_pixel = fitted.lt(0.0001).reduce(ee.Reducer.allNonZero())
     var diff_mean = diff.select('diff_RED')
                        .add(diff.select('diff_GREEN'))
                        .add(diff.select('diff_BLUE' ))
                        .divide(3)
-                   
+                       
+    var diff_mean2 = diff.select('diff_NIR')
+                       .add(diff.select('diff_SWIR1'))
+                       .add(diff.select('diff_SWIR2' ))
+                       .divide(3)
+
+    var diff_mean3 = diff.select('diff_NIR')
+                         .add(diff.select('diff_SWIR1'))
+                         .add(diff.select('diff_SWIR2' ))
+                         .add(diff.select('diff_RED'))
+                         .add(diff.select('diff_GREEN'))
+                         .add(diff.select('diff_BLUE' ))
+                         .rename('all_bands')
+                         .reproject(crs, null, 10)
+                         //.divide(3)
+                 
     var kernel1 = ee.Kernel.circle({radius: 2, units:  'pixels'})
     var kernel2 = ee.Kernel.circle({radius: 4, units:  'pixels'})
     var snow_thresh_1 = 0.05
@@ -271,7 +372,42 @@ function get_cloud(image){
                                .focal_max({kernel: kernel2})
                                .rename('cloud')
     image = get_shadow(image)
-    var shadow = diff_mean.lt(-0.025)
+    
+    var saa = ee.Number(this_image.get('MEAN_SOLAR_AZIMUTH_ANGLE'))
+    var sza = ee.Number(this_image.get('MEAN_SOLAR_ZENITH_ANGLE' ))
+    var cloudHeights = ee.List.sequence(200, 5000, 100);
+    var shadowMask = projectShadows(cloud, cloudHeights, sza, saa, 10)
+    var shadowMask = shadowMask.and(diff_mean.lt(-0.01))
+                               .and(image.select('shadow_prob').gt(200))
+                               .rename('shadow')
+                               
+    // var to_export = image.addBands([cloud, shadowMask, cloud_prob, diff_mean])
+    // Export.image.toAsset({
+    //                   image: to_export,
+    //                   description: 'cloudToAssetExample',
+    //                   assetId: 'cloud_test',
+    //                   scale: 10,
+    //                   region: image.geometry(),
+    //                   maxPixels: 1e13
+    //                   });
+    // //Map.addLayer(image, {bands:['RED', 'GREEN', 'BLUE'], min:0, max:0.2})
+    // //Map.addLayer(shadowMask, {}, 'shadow mask')
+    // //Map.addLayer(cloud, {}, 'cloud mask')
+    // //Map.addLayer(cdi, {max:0.5, min:-1, palette : ['00FFFF', '0000FF']}, 'CDI' )
+    // //Map.addLayer(diff_mean2, {max:0.05, palette: ['00FFFF', '0000FF']}, 'NIR_SWIR_diff')
+    // Map.addLayer(diff_mean3, {max:0.3,min:-0.3, palette: ['00FFFF', '0000FF']}, 'All_bands')
+    // Map.addLayer(image, {bands:['RED', 'GREEN', 'BLUE'], min:0, max:0.2}, 'Land')
+    // Map.addLayer(diff_mean3.gt(0.4).updateMask(diff_mean3.gt(0.4)), {palette : ['#008744', '#d62d20']}, 'Cloud' )
+    // // var saa = ee.Number(this_image.get('MEAN_SOLAR_AZIMUTH_ANGLE'))
+    // // var sza = ee.Number(this_image.get('MEAN_SOLAR_ZENITH_ANGLE' ))
+    // // var cloudHeights = ee.List.sequence(200, 5000, 100);
+    // // var shadowMask = projectShadows(diff_mean3.gt(0.4), cloudHeights, sza, saa, 10)
+    // //Map.addLayer(diff_mean3.lt(-0.3), {palette: ['00FFFF', '0000FF']}, 'Shadow')
+    // Map.addLayer(diff_mean3.lt(-0.3).updateMask(diff_mean3.lt(-0.3)), {palette : ['00FFFF', '0000FF']}, 'Shadow' )
+    
+    
+    // Map.centerObject(geometry)
+    var shadow = diff_mean.lt(-0.005)
                           .and(image.select('shadow_prob').gt(200))
                           .and(cloud.eq(0))
                           .focal_min({kernel: kernel1})
@@ -279,6 +415,19 @@ function get_cloud(image){
                           .rename('shadow')
     return image.addBands([cloud, NDSI, PCP, CDI_cloud, shadow, cdi, diff])
     }
+// var geometry = ee.Geometry.Polygon(
+//         [[[-63.75696849133442, -33.029072158007615],
+//           [-63.74263476635883, -33.028748337667125],
+//           [-63.73960490480056, -33.01642065996972],
+//           [-63.75359530702224, -33.01598883728071]]]);
+
+// var s2s = ee.ImageCollection('COPERNICUS/S2')
+//                   .filterDate('2019-2-04', '2019-2-05')
+//                   // .filter(ee.Filter.calendarRange(startYear,endYear,'year'))
+//                   // .filter(ee.Filter.calendarRange(startJulian,endJulian))
+//                   .filterBounds(geometry)
+//                   .first()
+// var image = get_cloud(s2s)
 exports.get_cloud = get_cloud
 exports.common_bands = common_bands
 exports.s2_bands = s2_bands

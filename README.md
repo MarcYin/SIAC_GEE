@@ -9,7 +9,43 @@
 
 This is the GEE version of [SIAC](https://github.com/MarcYin/SIAC), under the intention of utilizing the power of GEE servers and wide variety of data. It has a simple UI based on the GEE UI APIs, which has the ability to search available Sentinel 2 images based on point clicked on the map, defined date range and cloud coverage, and correct for selected one image tile or do AC for all of them.
 
-### Reference
+
+### Usage:
+
+1. Click [here](https://code.earthengine.google.com/b4fb38865be2bfb59f04b93eb415a042) to open the GEE APP;
+
+2. Click `show code` to show the code for the UI, and click `Run` to start the UI;
+
+3. Click over the map top set AOI, using datesliders to set time period and using slider to set cloud cover threshold
+
+4. Click search to get the desired Sentinel 2 images, then choose to `Do AC` for one selected image or for all the results;
+
+5. Cick `Do LAI` to get LAI products for all the results
+
+
+### Click `RUN` buttons to submit jobs to GEE server:
+
+It is hard to click `RUN` button for every single image, so a piece of code to do it. To use it, you need to press `F12` in your keyboard to open browser console and paste the following code:
+
+```javascript
+// Run IMAGE tasks:
+
+function runTaskList(){
+    var tasklist = document.getElementsByClassName('task local type-EXPORT_IMAGE awaiting-user-config');
+    for (var i = 0; i < tasklist.length; i++)
+            tasklist[i].children[2].click();
+}
+// confirmAll();
+function confirmAll() {
+    var ok = document.getElementsByClassName('goog-buttonset-default goog-buttonset-action');
+    for (var i = 0; i < ok.length; i++)
+        ok[i].click();
+}
+runTaskList();
+confirmAll();
+```
+
+### Reference:
 
 Yin, F., Lewis, P. E., Gomez-Dans, J., & Wu, Q. (2019, February 21). A sensor-invariant atmospheric correction method: application to Sentinel-2/MSI and Landsat 8/OLI. https://doi.org/10.31223/osf.io/ps957
 
