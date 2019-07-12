@@ -1,0 +1,24 @@
+{
+  "name": "Toa2Lai",
+  "version": "1.0.0",
+  "description": "Top of atmosphere reflectamce to Leaf Area Index estimate",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://earthengine.googlesource.com/users/marcyinfeng/Toa2Lai"
+  },
+  "keywords": [
+    "LAI",
+    "Sentinel",
+    "S2",
+    "UCL"
+  ],
+  "scripts": {
+    "postinstall": "[ -h ../users] || ln -sf ./ ../users && [ -h ../marcyinfeng] || ln -sf ./ ../marcyinfeng && [ -h ./:] || ln -sf ./ ./:"
+  },
+  "author": "Feng Yin",
+  "license": "GPL-3.0-or-later"
+}

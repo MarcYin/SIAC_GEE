@@ -1,0 +1,24 @@
+{
+  "name": "SIAC",
+  "version": "1.0.0",
+  "description": "SIAC atmospheric correction",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://earthengine.googlesource.com/users/marcyinfeng/SIAC"
+  },
+  "keywords": [
+    "LAI",
+    "Sentinel",
+    "S2",
+    "UCL"
+  ],
+  "scripts": {
+    "postinstall": "[ -h ../users] || ln -sf ./ ../users && [ -h ../marcyinfeng] || ln -sf ./ ../marcyinfeng && [ -h ./:] || ln -sf ./ ./:"
+  },
+  "author": "Feng Yin",
+  "license": "GPL-3.0-or-later"
+}
