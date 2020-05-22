@@ -27,6 +27,7 @@ This is the GEE version of [SIAC](https://github.com/MarcYin/SIAC), under the in
 
 It is hard to click `RUN` button for every single image, so a piece of code to do it. To use it, you need to press `F12` in your keyboard to open browser console and paste the following code:
 
+Great thanks to [Dongdong Kong](https://github.com/kongdd) for sharing it on [stackexchange](https://gis.stackexchange.com/questions/290771/batch-task-execution-in-google-earth-engine)!
 ```javascript
 
 /**
