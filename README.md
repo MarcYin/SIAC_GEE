@@ -31,6 +31,10 @@ Great thanks to [Dongdong Kong](https://github.com/kongdd) for sharing it on [st
 ```javascript
 
 /**
+ * Copyright (c) 2017 Dongdong Kong. All rights reserved.
+ * This work is licensed under the terms of the MIT license.  
+ * For a copy, see <https://opensource.org/licenses/MIT>.
+ *
  * Batch execute GEE Export task
  *
  * First of all, You need to generate export tasks. And run button was shown.
@@ -43,8 +47,6 @@ Great thanks to [Dongdong Kong](https://github.com/kongdd) for sharing it on [st
  *  Dongdong Kong , 28 Aug' 2017 
  *      Sun Yat-sen University
  */
- 
-// Run IMAGE tasks:
 
 function runTaskList(){
     var tasklist = document.getElementsByClassName('task local type-EXPORT_IMAGE awaiting-user-config');
