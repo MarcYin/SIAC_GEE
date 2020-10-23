@@ -12,7 +12,7 @@ This is the GEE version of [SIAC](https://github.com/MarcYin/SIAC), under the in
 
 ### Usage:
 
-1. Click [here](https://code.earthengine.google.com/b4fb38865be2bfb59f04b93eb415a042) to open the GEE APP;
+1. Click [here](https://code.earthengine.google.com/a342249fbd42feadbea715e65013c8ca) to open the GEE APP;
 
 2. Click `show code` to show the code for the UI, and click `Run` to start the UI;
 
