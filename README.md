@@ -27,8 +27,26 @@ This is the GEE version of [SIAC](https://github.com/MarcYin/SIAC), under the in
 
 It is hard to click `RUN` button for every single image, so a piece of code to do it. To use it, you need to press `F12` in your keyboard to open browser console and paste the following code:
 
+Great thanks to [Dongdong Kong](https://github.com/kongdd) for sharing it on [stackexchange](https://gis.stackexchange.com/questions/290771/batch-task-execution-in-google-earth-engine)!
 ```javascript
-// Run IMAGE tasks:
+
+/**
+ * Copyright (c) 2017 Dongdong Kong. All rights reserved.
+ * This work is licensed under the terms of the MIT license.  
+ * For a copy, see <https://opensource.org/licenses/MIT>.
+ *
+ * Batch execute GEE Export task
+ *
+ * First of all, You need to generate export tasks. And run button was shown.
+ *   
+ * Then press F12 get into console, then paste those scripts in it, and press 
+ * enter. All the task will be start automatically. 
+ * (Firefox and Chrome are supported. Other Browsers I didn't test.)
+ * 
+ * @Author: 
+ *  Dongdong Kong , 28 Aug' 2017 
+ *      Sun Yat-sen University
+ */
 
 function runTaskList(){
     var tasklist = document.getElementsByClassName('task local type-EXPORT_IMAGE awaiting-user-config');
